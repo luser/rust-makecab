@@ -10,3 +10,6 @@ chrono = "0.2"
 clap = "2.3.0"
 flate2 = "0.2.14"
 filetime = "0.1"
+
+[profile.release]
+debug = true
