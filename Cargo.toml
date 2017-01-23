@@ -8,8 +8,14 @@ license = "cc0"
 [dependencies]
 chrono = "0.2"
 clap = "2.3.0"
-flate2 = "0.2.14"
+error-chain = "0.7.2"
 filetime = "0.1"
+mszip = { path = "mszip" }
+
+[dev-dependencies]
+tempdir = "0.3.4"
 
 [profile.release]
 debug = true
+
+[workspace]

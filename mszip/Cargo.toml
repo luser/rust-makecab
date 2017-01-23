@@ -1,0 +1,16 @@
+[package]
+name = "mszip"
+version = "0.1.0"
+authors = ["Ted Mielczarek <ted@mielczarek.org>"]
+description = "Compress data in Microsoft's MS-ZIP format"
+license = "cc0"
+
+[dependencies]
+error-chain = "0.7.2"
+#flate2 = { version = "0.2.17", default-features = false, features = ["zlib"] }
+flate2 = { git = "https://github.com/luser/flate2-rs/", branch = "expose-raw-zlib-obj", default-features = false, features = ["zlib"] }
+libc = "0.2"
+libz-sys = "1.0"
+
+[dev-dependencies]
+winapi = "0.2"

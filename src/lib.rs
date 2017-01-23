@@ -6,33 +6,48 @@
 //!
 //! [Microsoft Cabinet File Format]: https://msdn.microsoft.com/en-us/library/bb417343.aspx#cabinet_format
 
-#![allow(non_camel_case_types, unused_variables, non_snake_case, dead_code)]
+#![allow(non_camel_case_types, non_snake_case)]
 
+#[macro_use]
+extern crate error_chain;
 extern crate chrono;
 extern crate filetime;
-extern crate flate2;
+extern crate mszip;
 
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{self, Cursor, SeekFrom, BufReader, BufWriter};
+use std::io::{self, SeekFrom, BufWriter};
 use std::mem;
 use std::path::Path;
-use std::ptr;
 use std::slice;
-use std::str;
 
 use chrono::{Datelike, Local, Timelike, TimeZone};
 use filetime::FileTime;
-use flate2::{Compress, Compression, Flush, Status};
+use mszip::{Compression, MSZipEncoder};
+
+mod errors {
+    use mszip;
+
+    // Create the Error, ErrorKind, ResultExt, and Result types
+    error_chain! {
+        errors {
+            BadFilename
+        }
+        links {
+            MSZip(mszip::Error, mszip::ErrorKind);
+        }
+        foreign_links {
+            Io(::std::io::Error);
+        }
+    }
+}
+
+use errors::*;
 
 /// Magic number at the start of a cabinet file.
 const SIGNATURE: [u8; 4] = [b'M',b'S',b'C',b'F'];
 /// File format version, currently 1.3.
 const VERSION: (u8, u8) = (1, 3);
-/// Magic number at the start of MS-ZIP compressed data.
-const MSZIP_SIGNATURE: [u8; 2] = [b'C', b'K'];
-/// Maximum bytes in a single CFDATA.
-const MAX_CHUNK: usize = 32768;
 
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
@@ -71,6 +86,7 @@ struct CFHEADER {
 
 #[repr(u16)]
 #[derive(Copy, Clone, Debug)]
+#[allow(dead_code)]
 enum CompressionType {
     None  = 0,
     MsZip = 1,
@@ -114,31 +130,6 @@ struct CFDATA {
      */
 }
 
-/// Read `count` bytes from `f` and return a `Vec<u8>` of them.
-fn read_bytes<T: Read>(f: &mut T, count: usize) -> io::Result<Vec<u8>> {
-    let mut buf = Vec::with_capacity(count);
-    try!(f.take(count as u64).read_to_end(&mut buf));
-    Ok(buf)
-}
-
-/// Convert `bytes` into `T`.
-//FIXME: this should be replaced with something based on serialize.
-fn transmogrify<T: Copy + Sized>(bytes: &[u8]) -> T {
-    assert_eq!(mem::size_of::<T>(), bytes.len());
-    unsafe {
-        let mut val : T = mem::uninitialized();
-        ptr::copy(bytes.as_ptr(), &mut val as *mut T as *mut u8, bytes.len());
-        val
-    }
-}
-
-/// Read a `T` from `f`.
-fn read<T: Copy + Sized, U : Read>(f: &mut U) -> io::Result<T> {
-    let size = mem::size_of::<T>();
-    let buf = try!(read_bytes(f, size));
-    Ok(transmogrify::<T>(&buf[..]))
-}
-
 /// Write a `T` to `f`.
 fn write<T: Sized, U: Write>(f: &mut U, data: &T) -> io::Result<()> {
     let p: *const T = data;
@@ -154,88 +145,40 @@ fn tell<T: Seek>(f: &mut T) -> io::Result<u64> {
     f.seek(SeekFrom::Current(0))
 }
 
-fn run_compress<R: BufRead>(obj: &mut R, data: &mut Compress, mut dst: &mut [u8], last: bool) -> io::Result<(usize, usize)> {
-    // Cribbed from flate2-rs. Wish this was public API!
-    let mut total_read = 0;
-    let mut total_consumed = 0;
-    loop {
-        let (read, consumed, ret, eof);
-        {
-            let input = try!(obj.fill_buf());
-            eof = input.is_empty();
-            let before_out = data.total_out();
-            let before_in = data.total_in();
-            let flush = if last {Flush::Finish} else {Flush::Sync};
-            ret = data.compress(input, &mut dst, flush);
-            read = (data.total_out() - before_out) as usize;
-            consumed = (data.total_in() - before_in) as usize;
-        }
-        obj.consume(consumed);
-        total_consumed += consumed;
-        total_read += read;
-
-        match ret {
-            // If we haven't ready any data and we haven't hit EOF yet,
-            // then we need to keep asking for more data because if we
-            // return that 0 bytes of data have been read then it will
-            // be interpreted as EOF.
-            Status::Ok |
-            Status::BufError if read == 0 && !eof && dst.len() > 0 => {
-                continue
-            }
-            Status::Ok |
-            Status::BufError |
-            Status::StreamEnd => return Ok((total_consumed, total_read)),
-        }
-    }
-}
-
 /// Write data from `input` to `output` as `CFDATA` blocks and return the number of blocks written.
-fn write_all_cfdata<T: Write, U: BufRead>(mut output: &mut T, input: &mut U) -> io::Result<u16> {
-    let mut compress = Compress::new(Compression::Default, false);
+fn write_all_cfdata<T: Write, R: Read>(mut output: &mut T, mut compress: &mut MSZipEncoder<R>) -> Result<u16> {
     let mut num_blocks = 0;
-    let mut out_buf: [u8; MAX_CHUNK] = [0; MAX_CHUNK];
     loop {
-        let (read, written) = {
-            let mut chunk = Cursor::new(try!(input.fill_buf()));
-            let nbytes = chunk.get_ref().len();
-            // Prepend the MS-ZIP signature to each chunk.
-            &out_buf[..MSZIP_SIGNATURE.len()].copy_from_slice(&MSZIP_SIGNATURE);
-            try!(run_compress(&mut chunk, &mut compress, &mut out_buf[MSZIP_SIGNATURE.len()..], nbytes < MAX_CHUNK))
-        };
-        input.consume(read);
-        if written == 0 {
-            break;
+        match try!(compress.read_block()) {
+            ref block if block.data.len() > 0 => {
+                let this_block = CFDATA {
+                    //TODO: should generate a checksum:
+                    // https://msdn.microsoft.com/en-us/library/bb417343.aspx#chksum
+                    csum: 0,
+                    cbData: block.data.len() as u16,
+                    cbUncomp: block.original_size as u16,
+                };
+                try!(write(&mut output, &this_block));
+                try!(output.write_all(block.data));
+                num_blocks += 1;
+            }
+            _ => break,
         }
-        let this_block = CFDATA {
-            //TODO: should generate a checksum:
-            // https://msdn.microsoft.com/en-us/library/bb417343.aspx#chksum
-            csum: 0,
-            cbData: (written + MSZIP_SIGNATURE.len()) as u16,
-            cbUncomp: read as u16,
-        };
-        try!(write(&mut output, &this_block));
-        try!(output.write_all(&out_buf[..this_block.cbData as usize]));
-        num_blocks += 1;
     }
     Ok(num_blocks)
 }
 
 /// Write a cabinet file at `cab_path` containing the single file `input_path`.
-pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> io::Result<()> {
+pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> Result<()> {
     let input = try!(File::open(input_path.as_ref()));
     let input_filename = match input_path.as_ref().file_name().and_then(|n| n.to_str()) {
         Some(name) => name,
-        None => {
-            return Err(io::Error::new(io::ErrorKind::InvalidData,
-                                      "Bad input filename"));
-        }
+        None => bail!(ErrorKind::BadFilename),
     };
     let meta = try!(input.metadata());
     let mtime = FileTime::from_last_modification_time(&meta);
     let mtime = Local.timestamp(mtime.seconds_relative_to_1970() as i64,
                                 mtime.nanoseconds());
-    let mut input = BufReader::with_capacity(MAX_CHUNK, input);
     let mut f = BufWriter::new(try!(File::create(cab_path)));
     // Write the header, we'll have to go back and write it again once we know
     // the full size of the file.
@@ -285,7 +228,9 @@ pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> i
     try!(f.write_all(input_filename.as_bytes()));
     try!(f.write_all(&[0]));
     folder.coffCabStart = try!(tell(&mut f)) as u32;
-    folder.cCFData = try!(write_all_cfdata(&mut f, &mut input));
+    // If we write more than one file we can reuse the compressor.
+    let mut compress = MSZipEncoder::new(input, Compression::Default);
+    folder.cCFData = try!(write_all_cfdata(&mut f, &mut compress));
     // Set the file length.
     header.cbCabinet = try!(tell(&mut f)) as u32;
     // Re-write the header and folder entries.
@@ -293,4 +238,89 @@ pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> i
     try!(write(&mut f, &header));
     try!(write(&mut f, &folder));
     Ok(())
+}
+
+// If I ever add support for extracting files from cabinets, I could
+// add round-trip tests for that here, but for now we'll live with
+// just testing creating cabinet files and then extracting them with
+// `expand`. The API Microsoft exposes for working with cabinet files
+// is horrendously complex, so rather than try to wrap that with Rust
+// FFI we'll just shell out to `expand`.
+#[cfg(all(test, windows))]
+mod tests {
+    extern crate tempdir;
+
+    use std::fs::File;
+    use std::io;
+    use std::io::prelude::*;
+    use std::process::Command;
+
+    use super::make_cab;
+    use self::tempdir::TempDir;
+
+    // Write `data` to a file, create a cabinet file from it, and then
+    // extract the file using `expand` and verify that the data is the same.
+    fn roundtrip(data: &[u8]) {
+        let t = TempDir::new("makecab").expect("failed to create temp dir");
+        let in_path = t.path().join("original");
+        {
+            let mut f = File::create(&in_path).expect("failed to create test file");
+            f.write_all(data).expect("failed to write test data");
+        }
+        let cab = t.path().join("test.cab");
+        make_cab(&cab, &in_path).expect("failed to create cab file");
+
+        let out_path = t.path().join("extracted");
+        let output = Command::new("expand")
+            .arg(&cab)
+            .arg(&out_path)
+            .output()
+            .expect("failed to run expand");
+        if output.status.success() {
+            let mut buf = vec!();
+            {
+                File::open(&out_path)
+                    .expect("failed to open output file")
+                    .read_to_end(&mut buf)
+                    .expect("failed to read output file");
+            }
+            assert_eq!(data, &buf[..]);
+        } else {
+            writeln!(io::stderr(), "Error running expand.
+Its stdout was:
+=====================
+{}
+=====================
+
+Its stderr was:
+=====================
+{}
+=====================
+",
+                                        String::from_utf8_lossy(&output.stdout),
+                                        String::from_utf8_lossy(&output.stderr)).unwrap();
+            assert!(false);
+        }
+    }
+
+    /// Generate a `Vec<u8>` of test data of `size` bytes.
+    fn test_data(size: usize) -> Vec<u8> {
+        (0..size).map(|v| (v % (u8::max_value() as usize + 1)) as u8).collect::<Vec<u8>>()
+    }
+
+    macro_rules! t {
+        ($name:ident, $e:expr) => {
+            #[test]
+            fn $name() {
+                let data = $e;
+                roundtrip(&data[..]);
+            }
+        }
+    }
+
+    const MAX_CHUNK: usize = 32 * 1024;
+
+    t!(zeroes, vec![0; 1000]);
+    t!(nonzero_many_blocks, test_data(MAX_CHUNK * 8));
+    t!(firefox_exe, include_bytes!("../testdata/firefox.exe"));
 }
