@@ -1,0 +1,20 @@
+language: rust
+cache: cargo
+
+rust:
+  - 1.12.0
+  - stable
+  - beta
+  - nightly
+
+script:
+  - cargo build --verbose
+  - RUST_BACKTRACE=1 cargo test --verbose
+  - RUST_BACKTRACE=1 cargo test --verbose -p mszip
+
+os:
+  - linux
+
+matrix:
+  allow_failures:
+    - rust: nightly

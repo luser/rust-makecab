@@ -8,7 +8,7 @@ license = "cc0"
 [dependencies]
 chrono = "0.2"
 clap = "2.3.0"
-error-chain = "0.7.2"
+error-chain = { version = "0.7.2", default-features = false }
 filetime = "0.1"
 mszip = { path = "mszip" }
 

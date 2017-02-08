@@ -6,7 +6,7 @@ description = "Compress data in Microsoft's MS-ZIP format"
 license = "cc0"
 
 [dependencies]
-error-chain = "0.7.2"
+error-chain = { version = "0.7.2", default-features = false }
 #flate2 = { version = "0.2.17", default-features = false, features = ["zlib"] }
 flate2 = { git = "https://github.com/luser/flate2-rs/", branch = "expose-raw-zlib-obj", default-features = false, features = ["zlib"] }
 libc = "0.2"
