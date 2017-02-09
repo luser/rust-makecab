@@ -1,0 +1,28 @@
+os: Visual Studio 2015
+
+environment:
+  matrix:
+    - channel: stable
+      target: x86_64-pc-windows-msvc
+    - channel: beta
+      target: x86_64-pc-windows-msvc
+    - channel: nightly
+      target: x86_64-pc-windows-msvc
+matrix:
+  allow_failures:
+    - channel: nightly
+
+install:
+- ps: .\appveyor_rust_install.ps1
+
+build_script:
+- cmd: cargo build --verbose
+
+test_script:
+- cmd: set RUST_BACKTRACE=1
+- cmd: cargo test --verbose
+- cmd: cargo test --verbose -p mszip
+
+branches:
+  only:
+    - master
