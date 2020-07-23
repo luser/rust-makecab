@@ -4,7 +4,6 @@ dist: trusty
 sudo: false
 
 rust:
-  - 1.12.0
   - stable
   - beta
   - nightly
