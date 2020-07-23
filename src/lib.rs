@@ -137,7 +137,7 @@ fn write<T: Sized, U: Write>(f: &mut U, data: &T) -> io::Result<()> {
     let s: &[u8] = unsafe {
         slice::from_raw_parts(p, mem::size_of::<T>())
     };
-    try!(f.write_all(s));
+    f.write_all(s)?;
     Ok(())
 }
 
@@ -149,7 +149,7 @@ fn tell<T: Seek>(f: &mut T) -> io::Result<u64> {
 fn write_all_cfdata<T: Write, R: Read>(mut output: &mut T, mut compress: &mut MSZipEncoder<R>) -> Result<u16> {
     let mut num_blocks = 0;
     loop {
-        match try!(compress.read_block()) {
+        match compress.read_block()? {
             ref block if block.data.len() > 0 => {
                 let this_block = CFDATA {
                     //TODO: should generate a checksum:
@@ -158,8 +158,8 @@ fn write_all_cfdata<T: Write, R: Read>(mut output: &mut T, mut compress: &mut MS
                     cbData: block.data.len() as u16,
                     cbUncomp: block.original_size as u16,
                 };
-                try!(write(&mut output, &this_block));
-                try!(output.write_all(block.data));
+                write(&mut output, &this_block)?;
+                output.write_all(block.data)?;
                 num_blocks += 1;
             }
             _ => break,
@@ -170,16 +170,16 @@ fn write_all_cfdata<T: Write, R: Read>(mut output: &mut T, mut compress: &mut MS
 
 /// Write a cabinet file at `cab_path` containing the single file `input_path`.
 pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> Result<()> {
-    let input = try!(File::open(input_path.as_ref()));
+    let input = File::open(input_path.as_ref())?;
     let input_filename = match input_path.as_ref().file_name().and_then(|n| n.to_str()) {
         Some(name) => name,
         None => bail!(ErrorKind::BadFilename),
     };
-    let meta = try!(input.metadata());
+    let meta = input.metadata()?;
     let mtime = FileTime::from_last_modification_time(&meta);
     let mtime = Local.timestamp(mtime.seconds_relative_to_1970() as i64,
                                 mtime.nanoseconds());
-    let mut f = BufWriter::new(try!(File::create(cab_path)));
+    let mut f = BufWriter::new(File::create(cab_path)?);
     // Write the header, we'll have to go back and write it again once we know
     // the full size of the file.
     let mut header = CFHEADER {
@@ -201,7 +201,7 @@ pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> R
         setID: 0,
         iCabinet: 0,
     };
-    try!(write(&mut f, &header));
+    write(&mut f, &header)?;
     // Write a folder entry.
     let mut folder = CFFOLDER {
         // This will get filled in after we write the CFFILE.
@@ -210,8 +210,8 @@ pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> R
         cCFData: 0,
         typeCompress: CompressionType::MsZip,
     };
-    try!(write(&mut f, &folder));
-    header.coffFiles = try!(tell(&mut f)) as u32;
+    write(&mut f, &folder)?;
+    header.coffFiles = tell(&mut f)? as u32;
     // Write a file entry.
     let file = CFFILE {
         cbFile: meta.len() as u32,
@@ -223,20 +223,20 @@ pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> R
         // here for now.
         attribs: 0x20,
     };
-    try!(write(&mut f, &file));
+    write(&mut f, &file)?;
     // Write filename as a nul-terminated string.
-    try!(f.write_all(input_filename.as_bytes()));
-    try!(f.write_all(&[0]));
-    folder.coffCabStart = try!(tell(&mut f)) as u32;
+    f.write_all(input_filename.as_bytes())?;
+    f.write_all(&[0])?;
+    folder.coffCabStart = tell(&mut f)? as u32;
     // If we write more than one file we can reuse the compressor.
     let mut compress = MSZipEncoder::new(input, Compression::Default);
-    folder.cCFData = try!(write_all_cfdata(&mut f, &mut compress));
+    folder.cCFData = write_all_cfdata(&mut f, &mut compress)?;
     // Set the file length.
-    header.cbCabinet = try!(tell(&mut f)) as u32;
+    header.cbCabinet = tell(&mut f)? as u32;
     // Re-write the header and folder entries.
-    try!(f.seek(SeekFrom::Start(0)));
-    try!(write(&mut f, &header));
-    try!(write(&mut f, &folder));
+    f.seek(SeekFrom::Start(0))?;
+    write(&mut f, &header)?;
+    write(&mut f, &folder)?;
     Ok(())
 }
 

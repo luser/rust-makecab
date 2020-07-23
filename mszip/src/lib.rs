@@ -62,7 +62,7 @@ fn run_compress<R: BufRead>(obj: &mut R, data: &mut Compress, mut dst: &mut [u8]
     loop {
         let (read, consumed, ret, eof);
         {
-            let input = try!(obj.fill_buf());
+            let input = obj.fill_buf()?;
             eof = input.is_empty();
             let before_out = data.total_out();
             let before_in = data.total_in();
@@ -123,7 +123,7 @@ impl<R: Read> MSZipEncoder<R> {
     /// Reads a single MSZIP block of compressed data.
     pub fn read_block<'a>(&'a mut self) -> Result<MSZipBlock<'a>> {
         let (read, written) = {
-            let mut chunk = Cursor::new(try!(self.reader.fill_buf()));
+            let mut chunk = Cursor::new(self.reader.fill_buf()?);
             let nbytes = chunk.get_ref().len();
             if nbytes == 0 {
                 return Ok(MSZipBlock {
@@ -133,7 +133,7 @@ impl<R: Read> MSZipEncoder<R> {
             }
             // Prepend the MS-ZIP signature to each chunk.
             &self.out_buffer[..SIG_LEN].copy_from_slice(&MSZIP_SIGNATURE);
-            try!(run_compress(&mut chunk, &mut self.compress, &mut self.out_buffer[SIG_LEN..]))
+            run_compress(&mut chunk, &mut self.compress, &mut self.out_buffer[SIG_LEN..])?
         };
         self.reader.consume(read);
         unsafe {
@@ -179,14 +179,14 @@ impl<W: Write> MSZipDecoder<W> {
         }
         println!("trying to decompress {} bytes", block.len() - MSZIP_SIGNATURE.len());
         let last = self.decompress.total_out();
-        match try!(self.decompress.decompress(&block[MSZIP_SIGNATURE.len()..],
-                                              &mut self.buffer,
-                                              Flush::Finish)) {
+        match self.decompress.decompress(&block[MSZIP_SIGNATURE.len()..],
+                                         &mut self.buffer,
+                                         Flush::Finish)? {
             Status::StreamEnd => {
                 let written = (self.decompress.total_out() - last) as usize;
                 println!("writing {} bytes to writer", written);
                 let decompressed = &self.buffer[..written];
-                try!(self.writer.write_all(decompressed));
+                self.writer.write_all(decompressed)?;
                 unsafe {
                     // Reset the decompressor for the next block, but keep
                     // its decompression dictionary.
