@@ -38,12 +38,12 @@ use errors::*;
 
 /// Write a cabinet file at `cab_path` containing the single file `input_path`.
 pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> Result<()> {
-    let mut input = try!(File::open(input_path.as_ref()));
+    let mut input = File::open(input_path.as_ref())?;
     let input_filename = match input_path.as_ref().file_name().and_then(|n| n.to_str()) {
         Some(name) => name,
         None => bail!(ErrorKind::BadFilename),
     };
-    let meta = try!(input.metadata());
+    let meta = input.metadata()?;
     let mtime = FileTime::from_last_modification_time(&meta);
     let mtime = NaiveDateTime::from_timestamp(mtime.unix_seconds(),
                                               mtime.nanoseconds());
