@@ -45,7 +45,7 @@ pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> R
     };
     let meta = try!(input.metadata());
     let mtime = FileTime::from_last_modification_time(&meta);
-    let mtime = NaiveDateTime::from_timestamp(mtime.seconds_relative_to_1970() as i64,
+    let mtime = NaiveDateTime::from_timestamp(mtime.unix_seconds(),
                                               mtime.nanoseconds());
     let mut cab_builder = CabinetBuilder::new();
     let folder = cab_builder.add_folder(CompressionType::MsZip);
