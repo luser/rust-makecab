@@ -45,8 +45,7 @@ pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> R
     };
     let meta = input.metadata()?;
     let mtime = FileTime::from_last_modification_time(&meta);
-    let mtime = NaiveDateTime::from_timestamp(mtime.unix_seconds(),
-                                              mtime.nanoseconds());
+    let mtime = NaiveDateTime::from_timestamp(mtime.unix_seconds(), mtime.nanoseconds());
     let mut cab_builder = CabinetBuilder::new();
     let folder = cab_builder.add_folder(CompressionType::MsZip);
     let file = folder.add_file(input_filename);
@@ -76,8 +75,8 @@ mod tests {
     use std::io::prelude::*;
     use std::process::Command;
 
-    use super::make_cab;
     use self::tempdir::TempDir;
+    use super::make_cab;
 
     // Write `data` to a file, create a cabinet file from it, and then
     // extract the file using `expand` and verify that the data is the same.
@@ -98,7 +97,7 @@ mod tests {
             .output()
             .expect("failed to run expand");
         if output.status.success() {
-            let mut buf = vec!();
+            let mut buf = vec![];
             {
                 File::open(&out_path)
                     .expect("failed to open output file")
@@ -107,7 +106,9 @@ mod tests {
             }
             assert_eq!(data, &buf[..]);
         } else {
-            writeln!(io::stderr(), "Error running expand.
+            writeln!(
+                io::stderr(),
+                "Error running expand.
 Its stdout was:
 =====================
 {}
@@ -118,15 +119,19 @@ Its stderr was:
 {}
 =====================
 ",
-                                        String::from_utf8_lossy(&output.stdout),
-                                        String::from_utf8_lossy(&output.stderr)).unwrap();
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )
+            .unwrap();
             assert!(false);
         }
     }
 
     /// Generate a `Vec<u8>` of test data of `size` bytes.
     fn test_data(size: usize) -> Vec<u8> {
-        (0..size).map(|v| (v % (u8::max_value() as usize + 1)) as u8).collect::<Vec<u8>>()
+        (0..size)
+            .map(|v| (v % (u8::max_value() as usize + 1)) as u8)
+            .collect::<Vec<u8>>()
     }
 
     macro_rules! t {
@@ -136,7 +141,7 @@ Its stderr was:
                 let data = $e;
                 roundtrip(&data[..]);
             }
-        }
+        };
     }
 
     const MAX_CHUNK: usize = 32 * 1024;
