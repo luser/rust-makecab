@@ -35,7 +35,7 @@ fn main() {
     }
 
     let source = matches.value_of_os("source").unwrap();
-    let dest_name = matches.value_of_os("destination").map(|p| Cow::Borrowed(p)).unwrap_or_else(|| {
+    let dest_name = matches.value_of_os("destination").map(Cow::Borrowed).unwrap_or_else(|| {
         let s = Path::new(source).file_name().unwrap().to_str().unwrap();
         Cow::Owned(OsString::from(s.chars().take(s.len()-1).chain("_".chars()).collect::<String>()))
     });
