@@ -8,40 +8,21 @@
 
 #![allow(non_camel_case_types, non_snake_case)]
 
-#[macro_use]
-extern crate error_chain;
-extern crate cab;
-extern crate chrono;
-extern crate filetime;
-
 use std::fs::File;
 use std::io;
 use std::path::Path;
 
+use anyhow::{bail, Result};
 use cab::{CabinetBuilder, CompressionType};
 use chrono::NaiveDateTime;
 use filetime::FileTime;
-
-mod errors {
-    // Create the Error, ErrorKind, ResultExt, and Result types
-    error_chain! {
-        errors {
-            BadFilename
-        }
-        foreign_links {
-            Io(::std::io::Error);
-        }
-    }
-}
-
-use errors::*;
 
 /// Write a cabinet file at `cab_path` containing the single file `input_path`.
 pub fn make_cab<T: AsRef<Path>, U: AsRef<Path>>(cab_path: T, input_path: U) -> Result<()> {
     let mut input = File::open(input_path.as_ref())?;
     let input_filename = match input_path.as_ref().file_name().and_then(|n| n.to_str()) {
         Some(name) => name,
-        None => bail!(ErrorKind::BadFilename),
+        None => bail!("Bad filename: '{}'", input_path.as_ref().to_string_lossy()),
     };
     let meta = input.metadata()?;
     let mtime = FileTime::from_last_modification_time(&meta);

@@ -1,8 +1,6 @@
 //! Create a cabinet file.
-extern crate clap;
-extern crate makecab;
 
-use clap::App;
+use clap::{arg, App};
 use std::borrow::Cow;
 use std::env;
 use std::ffi::OsString;
@@ -14,23 +12,29 @@ fn main() {
         .version(env!("CARGO_PKG_VERSION"))
         .author("Ted Mielczarek <ted@mielczarek.org>")
         .about("Cabinet Maker (less-fully-featured Rust port)")
-        .args_from_usage(
-            "-F [directives]        'Not supported'
-             -D [var=value]        'Defines variable with specified value.'
-             -L [dir]               'Location to place destination (default is current directory)'
-             -V[n]                 'Verbosity level
-             <source>             'File to compress.'
-             [destination]        'File name to give compressed file. If omitted, the last character of the source file name is replaced with an underscore (_) and used as the destination.'"
+        .args(&[
+            arg!(-F [directives]        "Not supported"),
+            clap::Arg::new("define")
+                .short('D')
+                .value_name("VAR=VAL")
+                .help("Defines variable with specified value."),
+            arg!(-L [DIR]               "Location to place destination (default is current directory)"),
+            arg!(-V[n]                  "Verbosity level"),
+            arg!(<source>               "File to compress")
+                .allow_invalid_utf8(true),
+            arg!([destination]          "File name to give compressed file. If omitted, the last character of the source file name is replaced with an underscore (_) and used as the destination.")
+                .allow_invalid_utf8(true),
+            ]
         )
         .get_matches();
 
     // Check for unsupported options.
-    if matches.is_present("F") {
+    if matches.is_present("directives") {
         println!("Error: directive files are not supported");
         process::exit(1);
     }
     if matches
-        .values_of("D")
+        .values_of("define")
         .map(|mut vals| vals.any(|v| v != "CompressionType=MSZIP"))
         .unwrap_or(false)
     {
@@ -52,7 +56,7 @@ fn main() {
             ))
         });
     let dest = matches
-        .value_of_os("L")
+        .value_of_os("DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| env::current_dir().unwrap())
         .join(dest_name);

@@ -4,18 +4,17 @@ description = "Create a limited subset of Microsoft cabinet files"
 version = "0.1.0"
 authors = ["Ted Mielczarek <ted@mielczarek.org>"]
 license = "cc0"
+edition = "2018"
 
 [dependencies]
 cab = "0.3"
 chrono = "0.4"
 clap = "3"
-error-chain = { version = "0.12", default-features = false }
 filetime = "0.2"
+anyhow = "1.0.52"
 
 [dev-dependencies]
 tempdir = "0.3.4"
 
 [profile.release]
 debug = true
-
-[workspace]
