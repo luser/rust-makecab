@@ -16,7 +16,32 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Build
+    - name: Check
+      run: cargo check --verbose
+
+  test:
+    runs-on: windows-latest
+    name: Windows
+    env:
+      CFG_RELEASE_CHANNEL: stable
+
+    steps:
+    - name: checkout
+      uses: actions/checkout@v2
+
+    - name: Install Rustup using win.rustup.rs
+      run: |
+        # Disable the download progress bar which can cause perf issues
+        $ProgressPreference = "SilentlyContinue"
+        Invoke-WebRequest https://win.rustup.rs/ -OutFile rustup-init.exe
+        .\rustup-init.exe -y --default-host=x86_64-pc-windows-msvc
+        del rustup-init.exe
+      shell: powershell
+
+    - name: build
       run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      shell: cmd
+
+    - name: test
+      run: cargo test
+      shell: cmd
